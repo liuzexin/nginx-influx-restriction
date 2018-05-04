@@ -25,7 +25,7 @@
 
 typedef struct {
 	ngx_str_t mode;
-	unsigned long rate;
+	ngx_uint_t rate;
 } restriction_config;
 
 static ngx_command_t ngx_http_influx_restriction_commands[] = {
@@ -73,12 +73,20 @@ ngx_module_t ngx_http_influx_restriction_module = {
 	NGX_MODULE_V1_PADDING
 }
 
-static void * ngx_http_influx_restriction_create_loc(ngx_conf_t * cf){
-	ngx_pool_t * pool = cf->pool;
-	restriction_config * config = ngx_palloc(pool, sizeof(restriction_config));
+static void * ngx_http_influx_restriction_create_loc(ngx_conf_t *cf){
+	ngx_pool_t *pool = cf->pool;
+	restriction_config *config = ngx_palloc(pool, sizeof(restriction_config));
+	if (config == NULL)
+	{
+		return NGX_ERROR;
+	}
+
+	config->rate = NGX_CONF_UNSET_UINT;
+	//TODO::!!
+	//ngx_conf_init config->mode
 }
 
-static ngx_int_t ngx_http_influx_restriction_init(ngx_conf_t * cf){
+static ngx_int_t ngx_http_influx_restriction_init(ngx_conf_t *cf){
 	ngx_http_handler_pt *h;
 	ngx_http_core_main_conf_t *cmcf;
 
