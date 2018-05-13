@@ -19,13 +19,18 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <hiredis/hiredis.h>
 
 #define INFLUX_RESTRICTION_MODE_IP "IP"
 #define INFLUX_RESTRICTION_MODE_URL "URL"
 
+#define INFLUX_RESTRICTION_EQUAL 0
+
 typedef struct {
 	ngx_str_t mode;
 	ngx_uint_t rate;
+	ngx_str_t redis_host;
+	ngx_uint_t redis_port;
 } restriction_config;
 
 static ngx_command_t ngx_http_influx_restriction_commands[] = {
@@ -40,6 +45,20 @@ static ngx_command_t ngx_http_influx_restriction_commands[] = {
 		ngx_string("influx-restriction-rate"),
 		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
 		NGX_HTTP_LOC_CONF_OFFSET,
+		offsetof(restriction_config, rate),
+		NULL
+	},
+	{
+		ngx_string("redis-host"),
+		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, //RODO:main or loc?
+		NGX_HTTP_LOC_CONF,
+		offsetof(restriction_config, rate),
+		NULL
+	},
+	{
+		ngx_string("redis-port"),
+		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,//RODO:main or loc?
+		NGX_HTTP_LOC_CONF,
 		offsetof(restriction_config, rate),
 		NULL
 	},
@@ -84,13 +103,19 @@ static void * ngx_http_influx_restriction_create_loc(ngx_conf_t *cf){
 	config->rate = NGX_CONF_UNSET_UINT;
 	//TODO::!!
 	//ngx_conf_init config->mode
+	// ngx_conf_init_ptr_value(config->mode, ngx_string(INFLUX_RESTRICTION_MODE_IP));
+	// config->mode = ngx_string(INFLUX_RESTRICTION_MODE_IP);
+	config->mode = NGX_CONF_UNSET_PTR;
+	config->redis_port = NGX_CONF_UNSET_UINT;
+	config->redis_host = NGX_CONF_UNSET_PTR;
+	return config;
 }
 
 static ngx_int_t ngx_http_influx_restriction_init(ngx_conf_t *cf){
 	ngx_http_handler_pt *h;
 	ngx_http_core_main_conf_t *cmcf;
 
-	cmcf = ngx_http_conf_get_module_main_conf_t(cf, ngx_http_core_module); 
+	cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module); 
 	h = ngx_array_push(&cmcf->phase[NGX_HTTP_ACCESS_PHASE].handlers);//Mount `ngx_http_influx_restriction_handler` function in NGX_HTTP_ACCESS_PHASE.
 	if (h == NULL)
 	{		
@@ -98,6 +123,48 @@ static ngx_int_t ngx_http_influx_restriction_init(ngx_conf_t *cf){
 	}
 
 	*h = ngx_http_influx_restriction_handler;
+	
 	return NGX_OK;
 }
 
+
+static ngx_int_t ngx_http_influx_restriction_handler(ngx_http_request_t *r){
+
+	ngx_connection_t *connect = r->connectiton;
+	restriction_config *config = ngx_http_conf_get_module_loc_conf(r, ngx_http_influx_restriction_module);
+
+	ngx_conf_init_ptr_value(config->mode, ngx_string(INFLUX_RESTRICTION_MODE_IP));	
+
+	if (ngx_strcmp(config->mode.data, INFLUX_RESTRICTION_MODE_IP) == INFLUX_RESTRICTION_EQUAL){
+		//TODO:
+	}else if (ngx_strcmp(config->mode->data, URL) == INFLUX_RESTRICTION_EQUAL){
+
+		ngx_set_ip(config, connect->add_text);
+	}else{
+		return NGX_ERROR;
+	}
+
+}
+
+static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip){
+
+	if (config->redis_host == NGX_CONF_UNSET_PTR || config->redis_port == NGX_CONF_UNSET_UINT)
+	{
+		return NGX_OK;
+	}
+	redisContext *c = redisConnect((const char *)config->redis_host.data, (int)config->redis_port);
+	if (c->err || c == NULL)
+	{
+		 //TODO:: save error log, bu not continue.
+		 return NGX_DECLIEND;//Continue or abort.?
+	}
+
+	redisReply *reply = redisCommand(c, "INCR %s", ip->data);
+	if (reply->type == REDIS_REPLY_NIL || reply->type == REDIS_REPLY_ERROR)
+	{
+		return NGX_DECLIEND;
+	}
+
+	//TODO://release *c
+	return NGX_OK;
+}
