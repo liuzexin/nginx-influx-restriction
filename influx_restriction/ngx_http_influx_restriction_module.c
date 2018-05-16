@@ -25,6 +25,7 @@
 #define INFLUX_RESTRICTION_MODE_URL "URL"
 
 #define INFLUX_RESTRICTION_EQUAL 0
+#define INFLUX_RESTRICTION_SECOND_UNIT 1
 
 typedef struct {
 	ngx_str_t mode;
@@ -37,6 +38,7 @@ static ngx_command_t ngx_http_influx_restriction_commands[] = {
 	{
 		ngx_string("influx-restriction-mode"),
 		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+		ngx_conf_set_str_solt,
 		NGX_HTTP_LOC_CONF_OFFSET,
 		offsetof(restriction_config, mode),
 		NULL
@@ -45,6 +47,7 @@ static ngx_command_t ngx_http_influx_restriction_commands[] = {
 		ngx_string("influx-restriction-rate"),
 		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
 		NGX_HTTP_LOC_CONF_OFFSET,
+		ngx_conf_set_num_solt,
 		offsetof(restriction_config, rate),
 		NULL
 	},
@@ -52,6 +55,7 @@ static ngx_command_t ngx_http_influx_restriction_commands[] = {
 		ngx_string("redis-host"),
 		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, //RODO:main or loc?
 		NGX_HTTP_LOC_CONF,
+		ngx_conf_set_str_solt,
 		offsetof(restriction_config, rate),
 		NULL
 	},
@@ -59,6 +63,7 @@ static ngx_command_t ngx_http_influx_restriction_commands[] = {
 		ngx_string("redis-port"),
 		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,//RODO:main or loc?
 		NGX_HTTP_LOC_CONF,
+		ngx_conf_set_num_solt,
 		offsetof(restriction_config, rate),
 		NULL
 	},
@@ -139,7 +144,7 @@ static ngx_int_t ngx_http_influx_restriction_handler(ngx_http_request_t *r){
 		//TODO:
 	}else if (ngx_strcmp(config->mode->data, URL) == INFLUX_RESTRICTION_EQUAL){
 
-		ngx_set_ip(config, connect->add_text);
+		return ngx_set_ip(config, connect->add_text);
 	}else{
 		return NGX_ERROR;
 	}
@@ -159,10 +164,27 @@ static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip){
 		 return NGX_DECLIEND;//Continue or abort.?
 	}
 
-	redisReply *reply = redisCommand(c, "INCR %s", ip->data);
-	if (reply->type == REDIS_REPLY_NIL || reply->type == REDIS_REPLY_ERROR)
-	{
-		return NGX_DECLIEND;
+	redisReply *reply = NULL;
+	reply = redisCommand(c, "GET %s", ip->data);
+	if (reply->type == REDIS_REPLY_NIL){
+
+		freeReplyObject(reply);
+		//TODO:Trunning on transaction?
+		redisAppendCommand(c, "INCR %s", ip->data);
+		redisAppendCommand(c, "EXPIRE %s %d", ip->data, INFLUX_RESTRICTION_SECOND_UNIT);
+		redisGetReply(c, &reply);
+		if (reply->type == REDIS_REPLY_INTEGER){
+			
+			if(reply->integer > config->rate){
+				ngx_log();//save log
+				return NGX_DECLIEND;
+			}
+		}
+		freeReplyObject(reply);
+		redisGetReply(c, &reply);
+		freeReplyObject(reply);
+	}else{
+		redisCommand(c, "INCR %s", ip->data);
 	}
 
 	//TODO://release *c
