@@ -144,14 +144,14 @@ static ngx_int_t ngx_http_influx_restriction_handler(ngx_http_request_t *r){
 		//TODO:
 	}else if (ngx_strcmp(config->mode->data, URL) == INFLUX_RESTRICTION_EQUAL){
 
-		return ngx_set_ip(config, connect->add_text);
+		return ngx_get_ip_restriction(config, connect->add_text, connect->log);
 	}else{
 		return NGX_ERROR;
 	}
 
 }
 
-static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip){
+static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip, ngx_log_t *log){
 
 	if (config->redis_host == NGX_CONF_UNSET_PTR || config->redis_port == NGX_CONF_UNSET_UINT)
 	{
@@ -165,7 +165,7 @@ static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip){
 	}
 
 	redisReply *reply = NULL;
-	reply = redisCommand(c, "GET %s", ip->data);
+	reply = redisCommand(c, "GET %s", ip->data); //TODO:synchronous to asynchronous
 	if (reply->type == REDIS_REPLY_NIL){
 
 		freeReplyObject(reply);
@@ -176,7 +176,12 @@ static ngx_int_t ngx_set_ip(restriction_config * config, ngx_str_t *ip){
 		if (reply->type == REDIS_REPLY_INTEGER){
 			
 			if(reply->integer > config->rate){
-				ngx_log();//save log
+				ngx_log_error(NGX_LOG_NOTICE, log, 0, 
+					"ip=%V,current_request_rate=%i/s,influx-restriction-rate=%i/s",
+					ip,
+					reply->integer,
+					config->rate
+					);//save log
 				return NGX_DECLIEND;
 			}
 		}
